@@ -1,4 +1,6 @@
 #include <arpa/inet.h>
+#include <fstream>
+#include <csignal>
 #include <cstdlib>
 #include <iterator>
 #include <netinet/in.h>
@@ -11,19 +13,15 @@
 #include "files.hpp"
 #include "colors.hpp"
 #include "util.hpp"
-
-struct ClientData {
-    int socket;
-    std::string address;
-    std::string nickname;
-};
+#include "types.hpp"
+#include "commands.hpp"
 
 namespace ServerData {
     const int PORT = 8080;
     const std::string AUTH_KEY = "piss";
     std::vector<ClientData> clients = {};
     std::mutex client_mutex;
-    CacheManager &cacheManager = CacheManager::get_instance();
+    CacheManager &cache_manager = CacheManager::get_instance();
 
     std::optional<ClientData> get_client(std::string nickname) {
         for (ClientData &client : clients) {
@@ -107,34 +105,55 @@ void handle_client(ClientData client) {
         ssize_t bytes_received = recv(client.socket, buffer, sizeof(buffer) - 1, 0);
         
         if (bytes_received <= 0) {
+            Print::info(std::format("Client {} ({}) disconnected.", client.nickname, client.address));
+            ServerData::remove_client(client.socket);
+            close(client.socket);
+
             break;
         }
 
         buffer[bytes_received] = '\0';
         Print::info(std::format("[{}, {}] {}", client.nickname, client.address, buffer));
-        std::string reply = "OK";
 
-        std::string buffer_str = std::string(buffer);
-        if (buffer_str == "info") {
-            reply = std::to_string(client.socket);
+        std::string reply = "[ERROR] Invalid command, type `help` for a list of commands.";
+        std::string buffer_str(buffer, bytes_received);
+        std::vector<std::string> args = Strings::split(buffer_str, ' ');
 
-        } else if (buffer_str == "exit") {
-            ServerData::remove_client(client.socket);
-            reply = "Okay, you're being removed.";
+        if (args.empty()) {
             send(client.socket, reply.c_str(), reply.size(), 0);
-            close(client.socket);
+            continue;
+        }
+        Commands::Context context = {.client=client, .clients=ServerData::clients, .args=args,
+            .cache_manager=&ServerData::cache_manager};
+        context.reply = reply;
 
-        } else if (buffer_str == "write") {
-            std::ifstream file("files/testfile.txt", std::ios::binary);
-            std::vector<uint8_t> file_bytes(std::istreambuf_iterator<char>(file), {});
+        if (args[0] == "info") {
+            Commands::info(context);
 
-            const std::string file_name = "testfile.txt";
-            FileData file_data = {.filename=file_name, .recipient="test1", .sender="test2"};
-            ServerData::cacheManager.write_file("testfile.txt", file_bytes, file_data);
-            reply = "Writing to a file I guess";
+        } else if (args[0] == "upload") {
+            Commands::upload(context);
+
+        } else if (args[0] == "download") {
+            Commands::download(context);
+
+        } else if (args[0] == "uploads") {
+            Commands::uploads(context);
+
+        } else if (args[0] == "quit") {
+            Commands::quit(context);
+
+            if (context.exit_after) {
+                send(client.socket, context.reply.c_str(), context.reply.size(), 0);
+
+                ServerData::remove_client(client.socket);
+                close(client.socket);
+                break;
+            }
         }
 
-        send(client.socket, reply.c_str(), reply.size(), 0);
+        if (context.should_reply) {
+            send(client.socket, context.reply.c_str(), context.reply.size(), 0);
+        }
     }
 
     close(client.socket);
@@ -143,6 +162,7 @@ void handle_client(ClientData client) {
 int main() {
     std::cout << Colors::CYAN << "─────┤ FTP Server ├─────" << Colors::RESET << "\n\n";
     Print::info("Starting server...");
+    std::signal(SIGPIPE, SIG_IGN);
 
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;

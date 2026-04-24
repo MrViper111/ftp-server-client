@@ -1,17 +1,9 @@
 #pragma once
 
-#include <filesystem>
-#include <fstream>
-#include <optional>
 #include <string>
 #include <vector>
 
-struct FileData {
-    std::string filename;
-    std::string recipient;
-    std::string sender;
-    std::optional<std::string> password;
-};
+#include "types.hpp"
 
 class CacheManager {
 public:

@@ -6,6 +6,8 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <format>
+#include <sstream>
 
 #include "colors.hpp"
 #include "util.hpp"
@@ -24,6 +26,15 @@ namespace ClientData {
         file.close();
         return contents;
     }
+}
+
+void print_buffer(std::string buffer) {
+    std::string color = Colors::RESET;
+    if (buffer.rfind("[ERROR]", 0) == 0) {
+        color = Colors::RED;
+    }
+
+    std::cout << color << buffer << Colors::RESET << std::endl;
 }
 
 std::string prompt(std::string message) {
@@ -50,8 +61,53 @@ std::string send_message(int server_socket, std::string message) {
     return std::string(buffer);
 }
 
+void recieve_message(int server_socket, char buffer[], int buffer_size) {
+    int bytes_received = recv(server_socket, buffer, buffer_size - 1, 0);
+    if (bytes_received <= 0) {
+        Print::error("Lost connection to server.");
+        
+        close(server_socket);
+        exit(EXIT_FAILURE);
+    }
+
+    buffer[bytes_received] = '\0';
+}
+
+void handle_signal(int socket, const std::vector<std::string> &args) {
+    if (args[1] == "upload") {
+        std::string filename = args[2];
+        std::string recipient = args[3];
+
+        std::cout << Colors::GRAY << "Sending " << filename << " to server for " << recipient << "...\n" << Colors::RESET;
+
+        std::ifstream file("files/" + filename, std::ios::binary);
+        std::vector<uint8_t> file_bytes(std::istreambuf_iterator<char>(file), {});
+
+        send(socket, file_bytes.data(), file_bytes.size(), 0);
+
+        char buffer[ClientData::BUFFER_SIZE];
+        recieve_message(socket, buffer, ClientData::BUFFER_SIZE);
+        
+        print_buffer(Colors::GREEN + std::string(buffer));
+    }
+
+    else if (args[1] == "download") {
+        std::string filename = args[2];
+        std::cout << Colors::GRAY << "Starting file download..." << std::endl;
+
+        char buffer[1024];
+        recieve_message(socket, buffer, 1024);
+
+        std::ofstream file(filename, std::ios::binary);
+        file.write(buffer, strlen(buffer));
+
+        std::cout << Colors::GREEN << std::format("File {} has been downloaded to {}!", filename, "./files")
+            << Colors::RESET << std::endl;
+    }
+}
+
 int main() {
-    std::cout << Colors::CYAN << "─────┤ FTP Client ├─────" << Colors::RESET << "\n";
+    std::cout << Colors::CYAN << "─────┤ FTP Client ├─────" << Colors::RESET << std::endl;
     std::cout << Colors::GRAY << "You will be authenticated using " << ClientData::AUTH_FILE << ".\n" << Colors::RESET;
 
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -72,9 +128,9 @@ int main() {
     std::string auth_response = send_message(server_socket, auth_key);
 
     if (auth_response == "Authentication successful!") {
-        std::cout << Colors::GREEN << auth_response << Colors::RESET << "\n";
+        std::cout << Colors::GREEN << auth_response << Colors::RESET << std::endl;
     } else {
-        std::cout << Colors::RED << auth_response << Colors::RESET << "\n";
+        std::cout << Colors::RED << auth_response << Colors::RESET << std::endl;
 
         close(server_socket);
         return EXIT_FAILURE;
@@ -99,18 +155,25 @@ int main() {
     std::cout << std::endl << buffer;
     std::cout << Colors::GRAY << "You can see the client list again by typing `clients`." << Colors::RESET << std::endl;
 
-
     while (true) {
         std::string message = prompt("Send to server...");
-        send(server_socket, message.c_str(), message.size(), 0);
 
-        bytes_received = recv(server_socket, buffer, sizeof(buffer) - 1, 0);
-        if (bytes_received <= 0) {
-            Print::error("Lost connection to server.");
-            break;
+        if (message.empty()) {
+            continue;
         }
-        buffer[bytes_received] = '\0';
-        std::cout << "SERVER: " << buffer << std::endl;
+
+        send(server_socket, message.c_str(), message.size(), 0);
+        recieve_message(server_socket, buffer, ClientData::BUFFER_SIZE);
+        std::string buffer_str = std::string(buffer);
+
+        if (buffer_str.rfind("SIG ", 0) == 0) {
+            std::vector<std::string> args = Strings::split(buffer_str, ' ');
+            handle_signal(server_socket, args);
+
+            continue;
+        }
+        
+        print_buffer(buffer_str); 
     }
 
     close(server_socket);
