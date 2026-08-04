@@ -142,6 +142,7 @@ int main() {
     do {
         std::string nickname = prompt("Enter a nickname for your client...");
         response = send_message(server_socket, nickname);
+
         if (response.starts_with("[ERROR]")) {
             std::cout << Colors::RED << response << Colors::RESET << std::endl;
         } else {
@@ -149,10 +150,13 @@ int main() {
         }
     } while (!response.starts_with("Nickname accepted"));
 
+    std::string ack_message = "ACK";
+    send(server_socket, ack_message.c_str(), ack_message.size(), 0);
+
     // Show the client list
     bytes_received = recv(server_socket, buffer, sizeof(buffer) - 1, 0);
     buffer[bytes_received] = '\0';
-    std::cout << std::endl << buffer;
+    std::cout << std::endl << buffer << std::flush;
     std::cout << Colors::GRAY << "You can see the client list again by typing `clients`." << Colors::RESET << std::endl;
 
     while (true) {

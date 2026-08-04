@@ -23,6 +23,7 @@ namespace Commands {
     void upload(Context &context);
     void download(Context &context);
     void uploads(Context &context);
+    void downloads(Context &context);
 
 }
 

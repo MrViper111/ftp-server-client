@@ -79,8 +79,35 @@ namespace Commands {
         std::ifstream file(path, std::ios::binary);
         std::vector<uint8_t> file_bytes(std::istreambuf_iterator<char>(file), {});
         send(client.socket, file_bytes.data(), file_bytes.size(), 0);
-    
+
         context.should_reply = false;
+    }
+
+    void downloads(Context &context) {
+        std::vector<FileData> files = context.cache_manager->files;
+        std::vector<FileData> available_files;
+        std::stringstream stream;
+
+        for (FileData file : files) {
+            if (file.recipient == context.client.nickname) {
+                available_files.push_back(file);
+            }
+        }
+
+        if (available_files.empty()) {
+            context.reply = Colors::RED + "You have no downloads for this session." + Colors::RESET;
+            return;
+        }
+
+        stream << std::format("Your avaialble downloads this session ({}):\n", available_files.size());
+
+        for (int i = 0; i < available_files.size(); i++) {
+            FileData file = available_files[i];
+            stream << Colors::GRAY << "- " << Colors::RESET << file.filename << " " << Colors::GRAY
+                << "(from " << file.sender << ")" << (i == available_files.size() ? "" : "\n");
+        }
+
+        context.reply = stream.str() + Colors::RESET;
     }
 
     void uploads(Context &context) {
@@ -88,7 +115,6 @@ namespace Commands {
         std::vector<FileData> client_files;
         std::stringstream stream;
 
-        stream << std::format("Your file uploads for this session ({}):\n", client_files.size());
         for (FileData file : files) {
             if (file.sender == context.client.nickname) {
                 client_files.push_back(file);
@@ -96,10 +122,12 @@ namespace Commands {
         }
 
         if (client_files.empty()) {
-            context.reply = Colors::RED + "You have uploaded no files this session.";
+            context.reply = Colors::RED + "You have uploaded no files this session." + Colors::RESET;
             return;
         }
-        
+
+        stream << std::format("Your file uploads for this session ({}):\n", client_files.size());
+
         for (int i = 0; i < client_files.size(); i++) {
             FileData file = client_files[i];
             stream << Colors::GRAY << "- " << Colors::RESET << file.filename << " " << Colors::GRAY
@@ -117,4 +145,3 @@ namespace Commands {
     }
 
 }
-

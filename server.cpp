@@ -1,8 +1,6 @@
 #include <arpa/inet.h>
-#include <fstream>
 #include <csignal>
 #include <cstdlib>
-#include <iterator>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -139,6 +137,9 @@ void handle_client(ClientData client) {
         } else if (args[0] == "uploads") {
             Commands::uploads(context);
 
+        } else if (args[0] == "downloads") {
+            Commands::downloads(context);
+
         } else if (args[0] == "quit") {
             Commands::quit(context);
 
@@ -240,10 +241,19 @@ int main() {
 
         const char* reply = "Nickname accepted, other clients will see you by this name.";
         send(client_socket, reply, strlen(reply), 0);
+        
+        char buffer[1024];
+        int bytes_received = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
+
+        if (bytes_received <= 0) {
+            Print::error("Client did not ACK, kicking them off...");
+            close(client_socket);
+        }
 
         std::string other_clients = ServerData::get_clients_string();
         send(client_socket, other_clients.c_str(), other_clients.size(), 0);
 
+        // Begin handling client
         std::thread(handle_client, data).detach();
     }
 
